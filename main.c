@@ -12,6 +12,10 @@
 #define WRITE_END 1
 #define BUFFER_SIZE 500
 
+char aliasses[64][256];       // 64 strings, each can hold 255 characters + null terminator
+char alias_commands[64][256]; // Similarly for command strings
+int alias_count = 0;
+
 // Function to split the command line into arguments
 int parse_command(char *command, char **args)
 {
@@ -44,8 +48,8 @@ void reverse_buffer(char *buffer, ssize_t count)
 // Function to execute the command
 int execute_command(char **args, bool background, bool redirect1, bool redirect2, bool redirect3, char *output_file)
 {
-    int fd[2];
 
+    int fd[2];
     pid_t pid;
 
     if (redirect3)
@@ -186,14 +190,143 @@ void check_background()
     return;
 }
 
+int save_alias(char *alias_command, char **alias_args)
+{
+    FILE *fp;
+    fp = fopen("alias.txt", "a");
+    if (fp == NULL)
+    {
+        perror("Error opening file");
+        return -1;
+    }
+    fprintf(fp, "%s = ", alias_command);
+    for (size_t i = 0; i < sizeof(alias_args); i++)
+    {
 
+        if (alias_args[i] == NULL)
+        {
+            break;
+        }
 
+        fprintf(fp, "%s ", alias_args[i]);
+    }
+    fprintf(fp, "\n");
+    fclose(fp);
+    return 0;
+}
 
+int load_aliasses()
+{
+    FILE *fp;
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    fp = fopen("alias.txt", "r");
+    if (fp == NULL)
+    {
+        perror("Error opening file");
+        return -1;
+    }
+    char key[256];
+    char command[256];
+    while ((read = getline(&line, &len, fp)) != -1)
+    {
+        // printf("%s", line);
+        if (sscanf(line, "%s = \"%[^\"]\"", key, command) == 2)
+        {
+            strcpy(aliasses[alias_count], key);
+            strcpy(alias_commands[alias_count], command);
 
+            alias_count++;
+        }
+    }
+    fclose(fp);
+    if (line)
+        free(line);
+    return 0;
+}
+
+void executor(char *args[], int arg_count)
+{
+
+    bool background;
+    if (strcmp(args[arg_count - 1], "&") == 0)
+    {
+        args[arg_count - 1] = NULL;
+        arg_count--;
+        background = true;
+    }
+    else
+    {
+        background = false;
+    }
+
+    bool redirect1;
+    bool redirect2;
+    bool redirect3;
+    char *output_file;
+    for (int i = 0; i < arg_count; i++)
+    {
+        if (strcmp(args[i], ">") == 0)
+        {
+            redirect1 = true;
+            output_file = args[i + 1];
+            args[i] = NULL;
+            arg_count -= 2;
+            break;
+        }
+        else if (strcmp(args[i], ">>") == 0)
+        {
+            redirect2 = true;
+            output_file = args[i + 1];
+            args[i] = NULL;
+            arg_count -= 2;
+            break;
+        }
+        else if (strcmp(args[i], ">>>") == 0)
+        {
+            redirect3 = true;
+            output_file = args[i + 1];
+            args[i] = NULL;
+            arg_count -= 2;
+            break;
+        }
+        redirect1 = false;
+        redirect2 = false;
+        redirect3 = false;
+    }
+
+    char *alias_command;
+    char *alias_args[64] = {NULL};
+    if (strcmp(args[0], "alias") == 0)
+    {
+        alias_command = args[1];
+        char command_buffer[1024] = "";
+        for (size_t i = 3; i < arg_count; i++) // after the =
+        {
+            if (args[i] == NULL)
+            {
+                break;
+            }
+            alias_args[i - 3] = args[i];
+            strcat(command_buffer, args[i]);
+            strcat(command_buffer, " "); // Add a space between arguments
+        }
+        strcpy(aliasses[alias_count], alias_command);
+        strcpy(alias_commands[alias_count], command_buffer);
+
+        save_alias(alias_command, alias_args);
+        alias_count++;
+    }
+
+    execute_command(args, background, redirect1, redirect2, redirect3, output_file);
+}
 int main()
 {
     char command[MAX_COMMAND_LENGTH];
     char *args[64];
+    char *args2[64];
+    load_aliasses();
 
     while (1)
     {
@@ -220,64 +353,38 @@ int main()
             continue;
         }
         check_background();
-        bool background;
-        if (strcmp(args[arg_count - 1], "&") == 0)
-        {
-            args[arg_count - 1] = NULL;
-            arg_count--;
-            background = true;
-        }
-        else
-        {
-            background = false;
-        }
 
-        bool redirect1;
-        bool redirect2;
-        bool redirect3;
-        char *output_file;
-        for (int i = 0; i < arg_count; i++)
+        for (int i = 0; i < alias_count; i++)
         {
-            if (strcmp(args[i], ">") == 0)
+            if (strcmp(aliasses[i], args[0]) == 0)
             {
-                redirect1 = true;
-                output_file = args[i + 1];
-                args[i] = NULL;
-                arg_count -= 2;
+                char *token;
+                char *rest = alias_commands[i];
+                int j = 0;
+                while ((token = strtok_r(rest, " ", &rest)))
+                {
+                    args2[j++] = token;
+                }
+                for (int k = 1; k < arg_count; k++)
+                {
+                    args[j++] = args[k];
+                }
+                args2[j] = NULL;
+                for (int i = 0; args2[i] != NULL; i++) {
+                    args[i] = args2[i];
+                }
+                arg_count = j;
                 break;
-            }
-            else if (strcmp(args[i], ">>") == 0)
-            {
-                redirect2 = true;
-                output_file = args[i + 1];
-                args[i] = NULL;
-                arg_count -= 2;
-                break;
-            }
-            else if (strcmp(args[i], ">>>") == 0)
-            {
-                redirect3 = true;
-                output_file = args[i + 1];
-                args[i] = NULL;
-                arg_count -= 2;
-                break;
-            }
-            else
-            {
-                redirect1 = false;
-                redirect2 = false;
-                redirect3 = false;
             }
         }
 
-
-
-
-        execute_command(args, background, redirect1, redirect2, redirect3, output_file);
+        executor(args, arg_count);
 
         // check_background();
     }
 }
 
-
-
+// BUFFER TERSINE CEIVRICI VS INCELE
+// alias implemente et
+// bello implemente et
+//  Hoca gcc kullanip baska bir kodu execute etmek isteyebilirstatic jmp_buf s_jumpBuffer;
