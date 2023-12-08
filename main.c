@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <fcntl.h>
+#include <time.h>
 
 #define MAX_COMMAND_LENGTH 1024
 #define READ_END 0
@@ -17,7 +18,7 @@ char alias_commands[64][256]; // Similarly for command strings
 int alias_count = 0;
 
 // Function to split the command line into arguments
-int parse_command(char *command, char **args)
+int parse_command(char *command, char args[64][256])
 {
     int count = 0;
     char *separator = " \t\n";
@@ -26,13 +27,15 @@ int parse_command(char *command, char **args)
     parsed = strtok(command, separator);
     while (parsed != NULL)
     {
-        args[count] = parsed;
+        strncpy(args[count], parsed, 256 - 1); // Copy the token
+        args[count][255] = '\0';               // Ensure null termination
+
         count++;
         parsed = strtok(NULL, separator);
     }
 
-    args[count] = NULL; // NULL-terminate the argument list
-    return count;       // Number of arguments
+    args[count][0] = '\0'; // NULL-terminate the last argument
+    return count;          // Number of arguments
 }
 
 void reverse_buffer(char *buffer, ssize_t count)
@@ -46,7 +49,7 @@ void reverse_buffer(char *buffer, ssize_t count)
 }
 
 // Function to execute the command
-int execute_command(char **args, bool background, bool redirect1, bool redirect2, bool redirect3, char *output_file)
+int execute_command(char args[64][256], bool background, bool redirect1, bool redirect2, bool redirect3, char *output_file)
 {
 
     int fd[2];
@@ -101,12 +104,28 @@ int execute_command(char **args, bool background, bool redirect1, bool redirect2
         else if (redirect3)
         {
 
-            close(fd[READ_END]);                // Close read end, child doesn't need it
+            close(fd[READ_END]);                // Close read end
             dup2(fd[WRITE_END], STDOUT_FILENO); // Redirect stdout to write end of pipe
-            close(fd[WRITE_END]);               // Close write end after duplicating
+            close(fd[WRITE_END]);               // Close write end
         }
 
-        execvp(args[0], args); // Execlp can not be used since it does not take the args array so it is not dynamic
+        char *arg_pointers[65]; // Array of pointers
+        int j = 0;
+        for (int i = 0; i < 64 && args[i][0] != '\0'; i++)
+        {
+            arg_pointers[j++] = args[i]; // Only copy non-empty arguments
+        }
+        arg_pointers[j] = NULL; // NULL-terminate the array
+
+        // execvp(args[0], args); // Execlp can not be used since it does not take the args array so it is not dynamic
+        if (execvp(arg_pointers[0], arg_pointers) == -1)
+        {
+            if (errno == ENOENT)
+            {
+                fprintf(stderr, "%s: Command not found\n", arg_pointers[0]);
+            }
+            exit(EXIT_FAILURE); // Only exit the child process, not the shell itself
+        }
     }
     else
     { // Parent process
@@ -246,13 +265,12 @@ int load_aliasses()
     return 0;
 }
 
-void executor(char *args[], int arg_count)
+void executor(char args[64][256], int arg_count)
 {
-
     bool background;
     if (strcmp(args[arg_count - 1], "&") == 0)
     {
-        args[arg_count - 1] = NULL;
+        args[arg_count - 1][0] = '\0'; // Null-terminate the string
         arg_count--;
         background = true;
     }
@@ -271,7 +289,7 @@ void executor(char *args[], int arg_count)
         {
             redirect1 = true;
             output_file = args[i + 1];
-            args[i] = NULL;
+            args[i][0] = '\0';
             arg_count -= 2;
             break;
         }
@@ -279,7 +297,7 @@ void executor(char *args[], int arg_count)
         {
             redirect2 = true;
             output_file = args[i + 1];
-            args[i] = NULL;
+            args[i][0] = '\0';
             arg_count -= 2;
             break;
         }
@@ -287,7 +305,7 @@ void executor(char *args[], int arg_count)
         {
             redirect3 = true;
             output_file = args[i + 1];
-            args[i] = NULL;
+            args[i][0] = '\0';
             arg_count -= 2;
             break;
         }
@@ -295,9 +313,8 @@ void executor(char *args[], int arg_count)
         redirect2 = false;
         redirect3 = false;
     }
-
     char *alias_command;
-    char *alias_args[64] = {NULL};
+    char *alias_args[64];
     if (strcmp(args[0], "alias") == 0)
     {
         alias_command = args[1];
@@ -318,14 +335,55 @@ void executor(char *args[], int arg_count)
         save_alias(alias_command, alias_args);
         alias_count++;
     }
-
-    execute_command(args, background, redirect1, redirect2, redirect3, output_file);
+    else
+    {
+        // printf("%s \n", args[0]);
+        // printf("%s \n", args[1]);
+        // printf("%s \n", args[2]);
+        // printf("%s \n", args[3]);
+        execute_command(args, background, redirect1, redirect2, redirect3, output_file);
+    }
 }
+
+int bello_executer(char *last_executed_command)
+{
+    char *username = getenv("USER");
+    char hostname[512];
+    gethostname(hostname, 512);
+
+    char* tty = ttyname(STDIN_FILENO);
+
+    char* shell = getenv("_"); // This might not be portable across all Unix systems
+
+    char* home = getenv("HOME");
+
+    time_t t;   // not a primitive datatype
+    time(&t);
+
+    printf("Username: %s\n", username);
+    printf("Hostname: %s\n", hostname);
+    printf("Last Executed Command: %s\n", last_executed_command);
+    printf("TTY: %s\n", tty);
+    printf("Current Shell Name: %s\n", shell);
+    printf("Home Location: %s\n", home);
+    printf("Current Time and Date: %s\n", ctime(&t));
+
+}
+
+
+void reset_args(char args[64][256])
+{
+    for (int i = 0; i < 64; i++)
+    {
+        args[i][0] = '\0';
+    }
+}
+
 int main()
 {
     char command[MAX_COMMAND_LENGTH];
-    char *args[64];
-    char *args2[64];
+    char args[64][256];
+    char args2[64][256];
 
     char hostname[512];
     gethostname(hostname, 512);
@@ -339,12 +397,13 @@ int main()
     sprintf(shellCommand, "%s@%s %s --- ", username, hostname, cwd);
 
     load_aliasses();
-
+    char last_executed_command[1024];
     while (1)
     {
 
+        reset_args(args);
         check_background();
-        printf("%s ",shellCommand);
+        printf("%s ", shellCommand);
         fflush(stdout); // WHY?
 
         if (fgets(command, MAX_COMMAND_LENGTH, stdin) == NULL)
@@ -359,7 +418,6 @@ int main()
             printf("Exiting myshell...\n");
             return 0;
         }
-
         int arg_count = parse_command(command, args);
         if (arg_count == 0)
         { // No command entered
@@ -371,29 +429,37 @@ int main()
         {
             if (strcmp(aliasses[i], args[0]) == 0)
             {
-                char *token;
-                char *rest = alias_commands[i];
-                int j = 0;
-                while ((token = strtok_r(rest, " ", &rest)))
-                {
-                    args2[j++] = token;
-                }
+
+                char command2[1024];
+                strcpy(command2, alias_commands[i]);
+                int arg_count2 = parse_command(command2, args2);
                 for (int k = 1; k < arg_count; k++)
                 {
-                    args[j++] = args[k];
+                    strcpy(args2[arg_count2++], args[k]);
                 }
-                args2[j] = NULL;
-                for (int i = 0; args2[i] != NULL; i++) {
-                    args[i] = args2[i];
+                arg_count = arg_count2;
+
+                int formatter;
+                for (formatter = 0; i < 64 && args2[formatter][0] != '\0'; formatter++)
+                {
+                    strcpy(args[formatter], args2[formatter]);
                 }
-                arg_count = j;
+
+                args[formatter][0] = '\0';
+
                 break;
             }
         }
+        if (strcmp(args[0], "bello") == 0)
+        {
+            bello_executer(last_executed_command);
+            continue;
+        }
 
+        printf("Args1: %s %s %s %s %s %s \n", args[0], args[1], args[2], args[3], args[4], args[5]);
+        printf("arg counter : %d \n", arg_count);
         executor(args, arg_count);
-
-        // check_background();
+        strcpy(last_executed_command, command);
     }
 }
 
