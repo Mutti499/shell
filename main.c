@@ -326,12 +326,25 @@ int main()
     char command[MAX_COMMAND_LENGTH];
     char *args[64];
     char *args2[64];
+
+    char hostname[512];
+    gethostname(hostname, 512);
+
+    char *username = getenv("USER");
+
+    char cwd[512];
+    getcwd(cwd, 512);
+
+    char shellCommand[1030];
+    sprintf(shellCommand, "%s@%s %s --- ", username, hostname, cwd);
+
     load_aliasses();
 
     while (1)
     {
+
         check_background();
-        printf("myshell> ");
+        printf("%s ",shellCommand);
         fflush(stdout); // WHY?
 
         if (fgets(command, MAX_COMMAND_LENGTH, stdin) == NULL)
@@ -387,4 +400,5 @@ int main()
 // BUFFER TERSINE CEIVRICI VS INCELE
 // alias implemente et
 // bello implemente et
-//  Hoca gcc kullanip baska bir kodu execute etmek isteyebilirstatic jmp_buf s_jumpBuffer;
+// error handling
+//  Hoca gcc kullanip baska bir kodu execute etmek isteyebilir
