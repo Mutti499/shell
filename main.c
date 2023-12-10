@@ -63,8 +63,7 @@ char *get_current_shell_from_proc()
     pid_t ppid = getppid();
     char shell_path[256];
     sprintf(shell_path, "/proc/%d/comm", ppid);
-    printf("shell path: %s \n", shell_path);
-    printf("ppid: %d \n", ppid);
+
 
     FILE *fp = fopen(shell_path, "r"); // Open the comm file for reading
 
@@ -390,20 +389,33 @@ void check_background()
     return;
 }
 
-int save_alias(char *alias_key, char *alias_value)
+int save_alias(char *alias_key, char *alias_value, bool is_exist)
 {
-    printf("alias command: %s \n", alias_key);
-    printf("alias args: %s \n", alias_value);
-    
 
     FILE *fp;
-    fp = fopen("alias.txt", "a");
-    if (fp == NULL)
+    if (!is_exist)
     {
-        perror("Error opening file");
-        return -1;
+        fp = fopen("alias.txt", "a");
+        if (fp == NULL)
+        {
+            perror("Error opening file");
+            return -1;
+        }
+        fprintf(fp, "%s = %s\n", alias_key, alias_value);
     }
-    fprintf(fp, "%s = %s\n", alias_key, alias_value);
+    else
+    {
+        fp = fopen("alias.txt", "w");
+        if (fp == NULL)
+        {
+            perror("Error opening file");
+            return -1;
+        }
+        for (int i = 0; i < alias_count; i++)
+        {
+            fprintf(fp, "%s = %s\n", aliasses_keys[i], aliasses_values[i]);
+        }
+    }
 
     fclose(fp);
     return 0;
@@ -427,12 +439,11 @@ int load_aliasses_keys()
     {
 
         // printf("%s", line);
-        if (sscanf(line, "%[^=] = %[^\n]", key, command) == 2)
+        if (sscanf(line, "%s = %[^\n]", key, command) == 2)
         {
             strcpy(aliasses_keys[alias_count], key);
             strcpy(aliasses_values[alias_count], command);
-            printf("key: %s \n", key);
-            printf("command: %s \n", command);
+
             alias_count++;
         }
     }
@@ -506,7 +517,6 @@ int executor(char args[64][256], int arg_count)
             strcat(command_buffer, args[i]);
             strcat(command_buffer, " "); // Add a space between arguments
         }
-        strcpy(aliasses_keys[alias_count], alias_key);
 
         int len = strlen(command_buffer);
         int quote_count = 0;
@@ -529,10 +539,26 @@ int executor(char args[64][256], int arg_count)
             printf("Syntax error: unbalanced quotes!\n");
             return 1;
         }
-        printf("value: %s \n", value);
-        strcpy(aliasses_values[alias_count], value);
-        alias_count++;
-        save_alias(alias_key, value);
+
+        bool is_exist = false;
+        for (int i = 0; i < alias_count; i++)
+        {
+            if (strcmp(aliasses_keys[i], alias_key) == 0)
+            {
+                strcpy(aliasses_values[i], value);
+                is_exist = true;
+                break;
+            }
+        }
+
+        if (!is_exist)
+        {
+            strcpy(aliasses_keys[alias_count], alias_key);
+            strcpy(aliasses_values[alias_count], value);
+            alias_count++;
+        }
+        
+        save_alias(alias_key, value, is_exist);
 
         return 0;
     }
@@ -636,4 +662,4 @@ int main()
 }
 // rapor bak
 
-//change alias not implemented
+// change alias not implemented
