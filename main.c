@@ -25,6 +25,13 @@ char parent_shell[256];
 
 int background_process_count = 0;
 
+volatile sig_atomic_t sigint_received = 0;
+
+void sigint_handler(int sig_num) {
+    // Set a flag when Ctrl+C is pressed
+    sigint_received = 1;
+}
+
 // Function to split the command line into arguments
 int parse_command(char *command, char args[64][256])
 {
@@ -358,27 +365,27 @@ void check_background()
                 int exit_status = WEXITSTATUS(status);
                 if (exit_status == 0)
                 {
-                    printf("Child %d terminated normally\n", pid);
+                    //printf("Child %d terminated normally\n", pid);
                 }
                 else
                 {
-                    printf("Child %d terminated with exit status %d\n", pid, exit_status);
+                    //printf("Child %d terminated with exit status %d\n", pid, exit_status);
                 }
             }
             else if (WIFSIGNALED(status))
             {
                 // Child killed by a signal.
-                printf("Child %d terminated by signal %d\n", pid, WTERMSIG(status));
+                //printf("Child %d terminated by signal %d\n", pid, WTERMSIG(status));
             }
             else if (WIFSTOPPED(status))
             {
                 // Child stopped.
-                printf("Child %d stopped by signal %d\n", pid, WSTOPSIG(status));
+                //printf("Child %d stopped by signal %d\n", pid, WSTOPSIG(status));
             }
             else if (WIFCONTINUED(status))
             {
                 // Child continue.
-                printf("Child %d continued\n", pid);
+                //printf("Child %d continued\n", pid);
             }
         }
     }
@@ -579,6 +586,10 @@ void reset_args(char args[64][256])
 
 int main()
 {
+        if (signal(SIGINT, sigint_handler) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
     char command[MAX_COMMAND_LENGTH];
     char args[64][256];
     char args2[64][256];
@@ -614,7 +625,7 @@ int main()
         // Check for the 'exit' command
         if (strcmp(command, "exit\n") == 0)
         {
-            printf("Exiting myshell...\n");
+            //printf("Exiting myshell...\n");
             return 0;
         }
         int arg_count = parse_command(command, args);
@@ -660,6 +671,3 @@ int main()
         }
     }
 }
-// rapor bak
-
-// change alias not implemented
